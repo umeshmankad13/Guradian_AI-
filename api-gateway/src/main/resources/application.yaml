@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: api-gateway
+  datasource:
+    url: jdbc:postgresql://localhost:5432/guardianai
+    username: postgres
+    password: Mu$anKibutsuji
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+server:
+  port: 8080
