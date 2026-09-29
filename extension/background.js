@@ -1,1 +1,0 @@
-console.log("GuardianAI background service started.");
