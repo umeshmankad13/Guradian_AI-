@@ -4,10 +4,19 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/guardianai
     username: postgres
-    password: Mu$anKibutsuji
+    password: ${DB_PASSWORD}
   jpa:
     hibernate:
       ddl-auto: update
+    open-in-view : false
+
+managemnet:
+  endpoint:
+    health:
+      show-details: never
+  health:
+    redis:
+      enabled: false
 
 server:
   port: 8080
