@@ -8,6 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import com.guardianai.api_gateway.entity.ScanIndicator;
 
 public interface ScanIndicatorRepository extends JpaRepository<ScanIndicator, UUID>{
-    List <ScanIndicator> findByScan(UUID scanId);
+    List <ScanIndicator> findByScanId(UUID scanId);
     
 }

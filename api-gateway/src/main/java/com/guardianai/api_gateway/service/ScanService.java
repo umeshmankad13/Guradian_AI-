@@ -2,13 +2,18 @@ package com.guardianai.api_gateway.service;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
+import com.guardianai.api_gateway.dto.ScanDetailResponse;
 import com.guardianai.api_gateway.dto.ScanRequest;
 import com.guardianai.api_gateway.dto.ScanResponse;
 import com.guardianai.api_gateway.entity.Domain;
@@ -24,7 +29,7 @@ import com.guardianai.api_gateway.repository.ScanRepository;
 import com.guardianai.api_gateway.repository.ScanResultRepository;
 import com.guardianai.api_gateway.repository.UrlRepository;
 
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service 
 public class ScanService {
@@ -204,6 +209,48 @@ public class ScanService {
         e.setSuspicious(suspicious);
         e.setReason(reason);
         return e;
+    }
+
+    @Transactional(readOnly = true)
+    public ScanDetailResponse getScan(UUID id) {
+        Scan scan = scanRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found"));
+
+        List<ScanDetailResponse.IndicatorDto> indicators = indicatorRepository.findByScanId(id).stream()
+                .map(i -> new ScanDetailResponse.IndicatorDto(
+                        i.getIndicatorType(), i.getIndicatorName(), i.getValue(), i.isMalicious()))
+                .toList();
+
+        List<ScanDetailResponse.ElementDto> elements = elementRepository.findByScanId(id).stream()
+                .map(e -> new ScanDetailResponse.ElementDto(
+                        e.getElementType(), e.getElementValue(), e.isSuspicious(), e.getReason()))
+                .toList();
+
+        List<String> recommendations = resultRepository.findFirstByScanId(id)
+                .map(r -> r.getRecommendation() == null
+                        ? List.<String>of()
+                        : List.of(r.getRecommendation().split("; ")))
+                .orElse(List.of());
+
+        return new ScanDetailResponse(
+                scan.getId(),
+                scan.getUrl().getUrl(),
+                scan.getDomain().getDomain(),
+                scan.getStatus(),
+                scan.getRiskScore(),
+                scan.getRiskLevel(),
+                scan.getConfidence(),
+                scan.getSummary(),
+                recommendations,
+                indicators,
+                elements,
+                toInstant(scan.getCreatedAt()),
+                toInstant(scan.getCompletedAt())
+        );
+    }
+
+    private Instant toInstant(LocalDateTime time) {
+        return time == null ? null : time.toInstant(ZoneOffset.UTC);
     }
 
     private String extractDomain(String url){
