@@ -1,5 +1,7 @@
 package com.guardianai.api_gateway.controller;
 
+import com.guardianai.api_gateway.dto.LoginRequest;
+import com.guardianai.api_gateway.dto.LoginResponse;
 import com.guardianai.api_gateway.dto.RegisterRequest;
 import com.guardianai.api_gateway.dto.UserResponse;
 import com.guardianai.api_gateway.service.AuthService;
@@ -25,5 +27,10 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public UserResponse register(@Valid @RequestBody RegisterRequest request) {
         return authService.register(request);
+    }
+
+    @PostMapping("/login")
+    public LoginResponse login (@Valid @RequestBody LoginRequest request) {
+        return authService.login(request);
     }
 }
