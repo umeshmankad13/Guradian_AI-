@@ -28,6 +28,7 @@ import com.guardianai.api_gateway.repository.ScanIndicatorRepository;
 import com.guardianai.api_gateway.repository.ScanRepository;
 import com.guardianai.api_gateway.repository.ScanResultRepository;
 import com.guardianai.api_gateway.repository.UrlRepository;
+import com.guardianai.api_gateway.repository.UserRepository;
 
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,10 +41,10 @@ public class ScanService {
     private final ScanIndicatorRepository indicatorRepository;
     private final PageElementRepository elementRepository;
     private final ScanResultRepository resultRepository;
-
+    private final UserRepository userRepository;
 
     public ScanService(DomainRepository domainRepository, UrlRepository urlRepository,
-        ScanRepository scanRepository,ScanIndicatorRepository indicatorRepository,PageElementRepository elementRepository,ScanResultRepository resultRepository
+        ScanRepository scanRepository,ScanIndicatorRepository indicatorRepository,PageElementRepository elementRepository,ScanResultRepository resultRepository,UserRepository userRepository
     ){
         this.domainRepository = domainRepository;
         this.urlRepository = urlRepository;
@@ -51,10 +52,11 @@ public class ScanService {
         this.indicatorRepository = indicatorRepository;
         this.elementRepository = elementRepository;
         this.resultRepository = resultRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional 
-    public ScanResponse analyze(ScanRequest request)
+    public ScanResponse analyze(UUID userId, ScanRequest request)
     {
         String domainName = extractDomain(request.url());
 
@@ -73,6 +75,7 @@ public class ScanService {
 
         //Create the scan first so the child rows can point to it
         Scan scan = new Scan();
+        scan.setUser(userRepository.getReferenceById(userId));
         scan.setUrl(url);
         scan.setDomain(domain);
         scan = scanRepository.save(scan);
@@ -212,9 +215,14 @@ public class ScanService {
     }
 
     @Transactional(readOnly = true)
-    public ScanDetailResponse getScan(UUID id) {
+    public ScanDetailResponse getScan(UUID userId,UUID id) {
         Scan scan = scanRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found"));
+
+        //Other user's scans look the same as missing ones, so IDs can't be probed
+        if(scan.getUser() == null || !scan.getUser().getId().equals(userId)){
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found");
+        }
 
         List<ScanDetailResponse.IndicatorDto> indicators = indicatorRepository.findByScanId(id).stream()
                 .map(i -> new ScanDetailResponse.IndicatorDto(

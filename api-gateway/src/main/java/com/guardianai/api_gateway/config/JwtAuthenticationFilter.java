@@ -42,13 +42,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-                System.out.println(">>> JWT filter: authenticated user " + userId);
+                // System.out.println(">>> JWT filter: authenticated user " + userId);
             } catch (Exception e) {
                 // System.out.println(">>> JWT filter rejected token: "
                 //         + e.getClass().getSimpleName() + " - " + e.getMessage());
             }
         } else {
-            System.out.println(">>> JWT filter: no Bearer header");
+            // System.out.println(">>> JWT filter: no Bearer header");
         }
 
         chain.doFilter(request, response);

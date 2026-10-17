@@ -23,6 +23,10 @@ import lombok.Setter;
 @Getter @Setter @NoArgsConstructor 
 public class Scan {
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn (name = "user_id")
+    private User user;
+
     @Id 
     @GeneratedValue (strategy = GenerationType.UUID)
     @Column (name = "scan_id")

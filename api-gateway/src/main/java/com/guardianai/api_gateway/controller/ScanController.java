@@ -2,6 +2,7 @@ package com.guardianai.api_gateway.controller;
 
 import java.util.UUID;
 
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,12 +29,13 @@ public class ScanController {
 
     //Mappint the Dto from the controller to the Service Layer
     @PostMapping 
-    public ScanResponse createScan(@Valid @RequestBody ScanRequest request) {
-        return scanService.analyze(request);
+    public ScanResponse createScan(@AuthenticationPrincipal UUID userId,@Valid @RequestBody ScanRequest request) {
+        return scanService.analyze(userId,request);
     }
 
+    //Authentication principal means the user identity came from the verifies token not from the request body
     @GetMapping("/{id}")
-    public ScanDetailResponse getScan(@PathVariable UUID id){
-        return scanService.getScan(id);
+    public ScanDetailResponse getScan(@AuthenticationPrincipal UUID userId,@PathVariable UUID id){
+        return scanService.getScan(userId, id);
     }
 }
