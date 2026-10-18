@@ -37,7 +37,7 @@ public class SecurityConfig {
                 response.getWriter().write("{\"status\":401,\"error\":\"Unauthorized\"}");
             }))
             .authorizeHttpRequests(auth -> auth
-                    .requestMatchers("/v1/health", "/v1/auth/**", "/error").permitAll()
+                    .requestMatchers("/v1/health", "/v1/auth/**", "/error", "/v1/auth/**").permitAll()
                     .anyRequest().authenticated()
             )
             .addFilterBefore(new JwtAuthenticationFilter(jwtService),
