@@ -9,10 +9,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.guardianai.api_gateway.dto.HistoryItem;
+import com.guardianai.api_gateway.dto.PageResponse;
 import com.guardianai.api_gateway.dto.ScanDetailResponse;
 import com.guardianai.api_gateway.dto.ScanRequest;
 import com.guardianai.api_gateway.dto.ScanResponse;
@@ -29,8 +35,6 @@ import com.guardianai.api_gateway.repository.ScanRepository;
 import com.guardianai.api_gateway.repository.ScanResultRepository;
 import com.guardianai.api_gateway.repository.UrlRepository;
 import com.guardianai.api_gateway.repository.UserRepository;
-
-import org.springframework.transaction.annotation.Transactional;
 
 @Service 
 public class ScanService {
@@ -268,5 +272,30 @@ public class ScanService {
         } catch (IllegalArgumentException e) {
             return "unknown";
         }
+    }
+
+    //It will just read the database does'nt modify it
+    @Transactional(readOnly = true)
+    public PageResponse<HistoryItem> getHistory(UUID userId, int page, int size) {
+        //clamp the inputs so a client can't ask for page -1 or 100000 rows
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1),50);
+
+    Page<Scan> result = scanRepository.findByUserId(userId,
+        PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
+    
+
+    List<HistoryItem> items = result.getContent().stream()
+    .map(s -> new HistoryItem(
+        s.getId(),
+        s.getUrl().getUrl(),
+        s.getDomain().getDomain(),
+        s.getStatus(),
+        s.getRiskScore(),
+        s.getRiskLevel(),
+        toInstant(s.getCreatedAt())))
+        .toList();
+
+    return new PageResponse<>(items, result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
 }
