@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,8 +30,8 @@ public class ScanController {
 
     //Mappint the Dto from the controller to the Service Layer
     @PostMapping 
-    public ScanResponse createScan(@AuthenticationPrincipal UUID userId,@Valid @RequestBody ScanRequest request) {
-        return scanService.analyze(userId,request);
+    public ScanResponse createScan(@AuthenticationPrincipal UUID userId,@RequestHeader (value = "X-Device-Id", required = false) UUID deviceId,@Valid @RequestBody ScanRequest request) {
+        return scanService.analyze(userId,deviceId,request);
     }
 
     //Authentication principal means the user identity came from the verifies token not from the request body

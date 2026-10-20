@@ -22,12 +22,14 @@ import com.guardianai.api_gateway.dto.PageResponse;
 import com.guardianai.api_gateway.dto.ScanDetailResponse;
 import com.guardianai.api_gateway.dto.ScanRequest;
 import com.guardianai.api_gateway.dto.ScanResponse;
+import com.guardianai.api_gateway.entity.Device;
 import com.guardianai.api_gateway.entity.Domain;
 import com.guardianai.api_gateway.entity.PageElement;
 import com.guardianai.api_gateway.entity.Scan;
 import com.guardianai.api_gateway.entity.ScanIndicator;
 import com.guardianai.api_gateway.entity.ScanResult;
 import com.guardianai.api_gateway.entity.Url;
+import com.guardianai.api_gateway.repository.DeviceRepository;
 import com.guardianai.api_gateway.repository.DomainRepository;
 import com.guardianai.api_gateway.repository.PageElementRepository;
 import com.guardianai.api_gateway.repository.ScanIndicatorRepository;
@@ -46,9 +48,11 @@ public class ScanService {
     private final PageElementRepository elementRepository;
     private final ScanResultRepository resultRepository;
     private final UserRepository userRepository;
+    private final DeviceRepository deviceRepository;
 
     public ScanService(DomainRepository domainRepository, UrlRepository urlRepository,
-        ScanRepository scanRepository,ScanIndicatorRepository indicatorRepository,PageElementRepository elementRepository,ScanResultRepository resultRepository,UserRepository userRepository
+        ScanRepository scanRepository,ScanIndicatorRepository indicatorRepository,PageElementRepository elementRepository,ScanResultRepository resultRepository,UserRepository userRepository,
+        DeviceRepository deviceRepository
     ){
         this.domainRepository = domainRepository;
         this.urlRepository = urlRepository;
@@ -57,10 +61,11 @@ public class ScanService {
         this.elementRepository = elementRepository;
         this.resultRepository = resultRepository;
         this.userRepository = userRepository;
+        this.deviceRepository = deviceRepository;
     }
 
     @Transactional 
-    public ScanResponse analyze(UUID userId, ScanRequest request)
+    public ScanResponse analyze(UUID userId, UUID deviceId, ScanRequest request)
     {
         String domainName = extractDomain(request.url());
 
@@ -77,6 +82,13 @@ public class ScanService {
             return urlRepository.save(u);
         });
 
+        Device device = null;
+        if(deviceId!=null){
+            device = deviceRepository.findByIdAndUserId(deviceId, userId)
+            .filter(d -> !d.isRevoked()).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Device not allowed "));
+
+            device.setLastSeenAt(LocalDateTime.now());
+        }
         //Create the scan first so the child rows can point to it
         Scan scan = new Scan();
         scan.setUser(userRepository.getReferenceById(userId));
