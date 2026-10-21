@@ -9,19 +9,24 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view : false
-  spring:
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
+  data:
+    redis:
+      host: localHost
+      port: 6379
+      password: ${REDIS_PASSWORD}
+  # autoconfigure:
+  #   #TODO: remove this exclude block when Redis is introduced
+  #   exclude:
+  #     - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+  #     - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
 
 managemnet:
   endpoint:
     health:
-      show-details: never
-  health:
-    redis:
-      enabled: false
+      show-details: always
+  # health:
+  #   redis:
+  #     enabled: false
 
 server:
   port: 8080
