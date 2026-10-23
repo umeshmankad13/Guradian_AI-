@@ -1,6 +1,6 @@
 package com.guardianai.api_gateway.config;
 
-import com.guardianai.api_gateway.service.JwtService;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -11,13 +11,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import com.guardianai.api_gateway.service.JwtService;
+import com.guardianai.api_gateway.service.RateLimitService;
+
 @Configuration
+@EnableConfigurationProperties (RateLimitProperties.class)
 public class SecurityConfig {
 
     private final JwtService jwtService;
+    private final RateLimitProperties rateLimitProperties;
+    private final RateLimitService rateLimitService;
 
-    public SecurityConfig(JwtService jwtService) {
+    public SecurityConfig(JwtService jwtService, RateLimitService rateLimitService, RateLimitProperties rateLimitProperties) {
         this.jwtService = jwtService;
+        this.rateLimitService=rateLimitService;
+        this.rateLimitProperties=rateLimitProperties;
     }
 
     @Bean
@@ -41,7 +49,8 @@ public class SecurityConfig {
                     .anyRequest().authenticated()
             )
             .addFilterBefore(new JwtAuthenticationFilter(jwtService),
-                    UsernamePasswordAuthenticationFilter.class);
+                    UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(new RateLimitFilter(rateLimitService, rateLimitProperties), JwtAuthenticationFilter.class);
         return http.build();
     }
 }
