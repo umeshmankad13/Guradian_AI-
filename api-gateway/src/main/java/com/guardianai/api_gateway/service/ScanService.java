@@ -1,22 +1,5 @@
 package com.guardianai.api_gateway.service;
 
-import java.math.BigDecimal;
-import java.net.URI;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
 import com.guardianai.api_gateway.dto.HistoryItem;
 import com.guardianai.api_gateway.dto.PageResponse;
 import com.guardianai.api_gateway.dto.ScanDetailResponse;
@@ -37,8 +20,24 @@ import com.guardianai.api_gateway.repository.ScanRepository;
 import com.guardianai.api_gateway.repository.ScanResultRepository;
 import com.guardianai.api_gateway.repository.UrlRepository;
 import com.guardianai.api_gateway.repository.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.server.ResponseStatusException;
 
-@Service 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.UUID;
+
+@Service
 public class ScanService {
 
     private final DomainRepository domainRepository;
@@ -49,11 +48,19 @@ public class ScanService {
     private final ScanResultRepository resultRepository;
     private final UserRepository userRepository;
     private final DeviceRepository deviceRepository;
+    private final AnalysisService analysisService;
+    private final TransactionTemplate tx;
 
-    public ScanService(DomainRepository domainRepository, UrlRepository urlRepository,
-        ScanRepository scanRepository,ScanIndicatorRepository indicatorRepository,PageElementRepository elementRepository,ScanResultRepository resultRepository,UserRepository userRepository,
-        DeviceRepository deviceRepository
-    ){
+    public ScanService(DomainRepository domainRepository,
+                       UrlRepository urlRepository,
+                       ScanRepository scanRepository,
+                       ScanIndicatorRepository indicatorRepository,
+                       PageElementRepository elementRepository,
+                       ScanResultRepository resultRepository,
+                       UserRepository userRepository,
+                       DeviceRepository deviceRepository,
+                       AnalysisService analysisService,
+                       TransactionTemplate tx) {
         this.domainRepository = domainRepository;
         this.urlRepository = urlRepository;
         this.scanRepository = scanRepository;
@@ -62,12 +69,29 @@ public class ScanService {
         this.resultRepository = resultRepository;
         this.userRepository = userRepository;
         this.deviceRepository = deviceRepository;
+        this.analysisService = analysisService;
+        this.tx = tx;
     }
 
-    @Transactional 
-    public ScanResponse analyze(UUID userId, UUID deviceId, ScanRequest request)
-    {
-        String domainName = extractDomain(request.url());
+    public ScanResponse analyze(UUID userId, UUID deviceId, ScanRequest request) {
+        if (deviceId != null) {
+            boolean allowed = deviceRepository.findByIdAndUserId(deviceId, userId)
+                    .filter(d -> !d.isRevoked())
+                    .isPresent();
+            if (!allowed) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Device not allowed");
+            }
+        }
+
+        // the slow part (cache lookup or analysis) runs outside any database transaction
+        AnalysisService.Result analysis = analysisService.analyze(request);
+
+        return tx.execute(status -> save(userId, deviceId, request, analysis.outcome(), analysis.cached()));
+    }
+
+    private ScanResponse save(UUID userId, UUID deviceId, ScanRequest request,
+                              AnalysisOutcome outcome, boolean cached) {
+        String domainName = UrlUtils.extractDomain(request.url());
 
         Domain domain = domainRepository.findByDomain(domainName).orElseGet(() -> {
             Domain d = new Domain();
@@ -83,160 +107,60 @@ public class ScanService {
         });
 
         Device device = null;
-        if(deviceId!=null){
-            device = deviceRepository.findByIdAndUserId(deviceId, userId)
-            .filter(d -> !d.isRevoked()).orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Device not allowed "));
-
-            device.setLastSeenAt(LocalDateTime.now());
-        }
-        //Create the scan first so the child rows can point to it
-        Scan scan = new Scan();
-        scan.setUser(userRepository.getReferenceById(userId));
-        scan.setUrl(url);
-        scan.setDomain(domain);
-        scan = scanRepository.save(scan);
-
-        // TODO: replace these mock values with the Analysis Orchestrator call
-        int score = 100;
-        List<String> findings = new ArrayList<>();
-        List<ScanIndicator> indicators = new ArrayList<>();
-        List<PageElement> elements = new ArrayList<>();
-
-        boolean https = request.url().startsWith("https://");
-
-        indicators.add(indicator(scan, "URL", "uses_https", String.valueOf(https), !https));
-        if(https){
-            findings.add("Connection uses HTTPS");
-        }
-        else{
-            score -= 20;
-            findings.add("Connections does not use HTTPS");
-        }
-
-        if(request.tls() !=null){
-            boolean valid = request.tls().valid();
-            indicators.add(indicator(scan, "TLS", "tls_valid", String.valueOf(valid),!valid));
-
-            if(valid){
-                findings.add("TLS certificate is valid");
-            } else {
-                score -=30;
-                findings.add("TLS certificate is invalid");
+        if (deviceId != null) {
+            device = deviceRepository.findById(deviceId).orElse(null);
+            if (device != null) {
+                device.setLastSeenAt(LocalDateTime.now());
             }
         }
 
-        if(request.redirects()!=null){
-            int count = request.redirects().size();
-            boolean tooMany = count > 3;
-            indicators.add(indicator(scan,"REDIRECT", "redirect_count", String.valueOf(count),tooMany));
-             if (tooMany) {
-                score -= 10;
-                findings.add("Many redirects detected (" + count + ")");
-            } else {
-                findings.add("No suspicious redirects");
-            }
-        }
-        if(request.page() != null)
-        {
-            int passwordFields = request.page().passwordFields();
-            boolean riskyPassword = passwordFields > 0 && !https;
-            elements.add(element(scan, "PASSWORD_FIELD", String.valueOf(passwordFields), riskyPassword,
-                    riskyPassword ? "Password field on a page without HTTPS" : null));
-            if (riskyPassword) {
-                score -= 20;
-                findings.add("Password field on an unencrypted page");
-            }
+        Scan draft = new Scan();
+        draft.setUser(userRepository.getReferenceById(userId));
+        draft.setDevice(device);
+        draft.setUrl(url);
+        draft.setDomain(domain);
+        draft.setStatus("COMPLETED");
+        draft.setRiskScore(outcome.score());
+        draft.setRiskLevel(outcome.level());
+        draft.setConfidence(BigDecimal.valueOf(outcome.confidence()).setScale(2, RoundingMode.HALF_UP));
+        draft.setSummary(outcome.explanation());
+        draft.setCompletedAt(LocalDateTime.now());
+        Scan scan = scanRepository.save(draft);
 
-             int scripts = request.page().externalScripts();
-            boolean manyScripts = scripts > 10;
-            elements.add(element(scan, "EXTERNAL_SCRIPT", String.valueOf(scripts), manyScripts,
-                    manyScripts ? "Unusually many external scripts" : null));
-            if (manyScripts) {
-                score -= 10;
-                findings.add("Many external scripts (" + scripts + ")");
-            }
-        }
-
-        score = Math.max(score, 0);
-        String level = score >= 80 ? "LOW" : score>=50 ? "MEDIUM" : "HIGH";
-        List<String> recommendations = switch(level) {
-            case "LOW" -> List.of("No actions  needed");
-
-            case "MEDIUM" -> List.of("Avoid entering personal information on this site");
-
-            default -> List.of("Do not enter credentials or personal data ", "Leave the site");
-        };
-        String explanation = "Placeholder rule-based analysis of " + domainName + "gave a security score of"
-         + score + "/100";
-
-        
-        scan.setStatus("COMPLETED");
-        scan.setRiskScore(82);
-        scan.setRiskLevel("LOW");
-        scan.setConfidence(new BigDecimal("0.90"));
-        scan.setSummary("This is a placeholder verdict for " + domainName + ".");
-        scan.setCompletedAt(LocalDateTime.now());
-        
-        indicatorRepository.saveAll(indicators);
-        elementRepository.saveAll(elements);
+        indicatorRepository.saveAll(outcome.indicators().stream().map(i -> toEntity(scan, i)).toList());
+        elementRepository.saveAll(outcome.elements().stream().map(e -> toEntity(scan, e)).toList());
 
         ScanResult result = new ScanResult();
         result.setScan(scan);
         result.setAnalysisType("RULE_BASED");
-        result.setRiskScore(score);
-        result.setRiskLevel(level);
-        result.setExplanation(explanation);
-        result.setRecommendation(String.join("; ", recommendations));
+        result.setRiskScore(outcome.score());
+        result.setRiskLevel(outcome.level());
+        result.setExplanation(outcome.explanation());
+        result.setRecommendation(String.join("; ", outcome.recommendations()));
         result.setModelUsed("placeholder-rules");
         resultRepository.save(result);
 
-          // finalize the scan (it is managed, so the changes are saved automatically)
-        scan.setStatus("COMPLETED");
-        scan.setRiskScore(score);
-        scan.setRiskLevel(level);
-        scan.setConfidence(new BigDecimal("0.60"));
-        scan.setSummary(explanation);
-        scan.setCompletedAt(LocalDateTime.now());
-
-        //TODO: replace with the Analysis Orchestrator call
-        return new ScanResponse(scan.getId(),
+        return new ScanResponse(
+                scan.getId(),
                 domainName,
-                level,
-                score,
-                0.60,
-                findings,
-                explanation,
-                recommendations,
-                scan.getCompletedAt().toInstant(ZoneOffset.UTC));
-    }
-
-    private ScanIndicator indicator(Scan scan, String type, String name, String value, boolean malicious) {
-        ScanIndicator i = new ScanIndicator();
-        i.setScan(scan);
-        i.setIndicatorType(type);
-        i.setIndicatorName(name);
-        i.setValue(value);
-        i.setMalicious(malicious);
-        return i;
-    }
-
-    private PageElement element(Scan scan, String type, String value, boolean suspicious, String reason) {
-        PageElement e = new PageElement();
-        e.setScan(scan);
-        e.setElementType(type);
-        e.setElementValue(value);
-        e.setSuspicious(suspicious);
-        e.setReason(reason);
-        return e;
+                outcome.level(),
+                outcome.score(),
+                outcome.confidence(),
+                outcome.findings(),
+                outcome.explanation(),
+                outcome.recommendations(),
+                toInstant(scan.getCompletedAt()),
+                cached
+        );
     }
 
     @Transactional(readOnly = true)
-    public ScanDetailResponse getScan(UUID userId,UUID id) {
+    public ScanDetailResponse getScan(UUID userId, UUID id) {
         Scan scan = scanRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found"));
 
-        //Other user's scans look the same as missing ones, so IDs can't be probed
-        if(scan.getUser() == null || !scan.getUser().getId().equals(userId)){
+        // other users' scans look exactly like missing ones
+        if (scan.getUser() == null || !scan.getUser().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found");
         }
 
@@ -273,41 +197,51 @@ public class ScanService {
         );
     }
 
-    private Instant toInstant(LocalDateTime time) {
-        return time == null ? null : time.toInstant(ZoneOffset.UTC);
-    }
-
-    private String extractDomain(String url){
-        try {
-            String host = URI.create(url).getHost();
-            return host != null ? host : "unknown";
-        } catch (IllegalArgumentException e) {
-            return "unknown";
-        }
-    }
-
-    //It will just read the database does'nt modify it
     @Transactional(readOnly = true)
     public PageResponse<HistoryItem> getHistory(UUID userId, int page, int size) {
-        //clamp the inputs so a client can't ask for page -1 or 100000 rows
         int safePage = Math.max(page, 0);
-        int safeSize = Math.min(Math.max(size, 1),50);
+        int safeSize = Math.min(Math.max(size, 1), 50);
 
-    Page<Scan> result = scanRepository.findByUserId(userId,
-        PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
-    
+        Page<Scan> result = scanRepository.findByUserId(
+                userId,
+                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt")));
 
-    List<HistoryItem> items = result.getContent().stream()
-    .map(s -> new HistoryItem(
-        s.getId(),
-        s.getUrl().getUrl(),
-        s.getDomain().getDomain(),
-        s.getStatus(),
-        s.getRiskScore(),
-        s.getRiskLevel(),
-        toInstant(s.getCreatedAt())))
-        .toList();
+        List<HistoryItem> items = result.getContent().stream()
+                .map(s -> new HistoryItem(
+                        s.getId(),
+                        s.getUrl().getUrl(),
+                        s.getDomain().getDomain(),
+                        s.getStatus(),
+                        s.getRiskScore(),
+                        s.getRiskLevel(),
+                        toInstant(s.getCreatedAt())))
+                .toList();
 
-    return new PageResponse<>(items, result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
+        return new PageResponse<>(items, result.getNumber(), result.getSize(),
+                result.getTotalElements(), result.getTotalPages());
+    }
+
+    private ScanIndicator toEntity(Scan scan, AnalysisOutcome.IndicatorData d) {
+        ScanIndicator i = new ScanIndicator();
+        i.setScan(scan);
+        i.setIndicatorType(d.type());
+        i.setIndicatorName(d.name());
+        i.setValue(d.value());
+        i.setMalicious(d.malicious());
+        return i;
+    }
+
+    private PageElement toEntity(Scan scan, AnalysisOutcome.ElementData d) {
+        PageElement e = new PageElement();
+        e.setScan(scan);
+        e.setElementType(d.type());
+        e.setElementValue(d.value());
+        e.setSuspicious(d.suspicious());
+        e.setReason(d.reason());
+        return e;
+    }
+
+    private Instant toInstant(LocalDateTime time) {
+        return time == null ? null : time.toInstant(ZoneOffset.UTC);
     }
 }

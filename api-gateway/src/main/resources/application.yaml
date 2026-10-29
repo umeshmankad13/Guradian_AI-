@@ -44,4 +44,8 @@ guardian:
     register-per-minute: 5
     scan-per-minute: 30
     default-per-minute: 120
+  cache: 
+    low-ttl-minutes: 60
+    medium-ttl-minutes: 30
+    high-ttl-minutes: 360
 

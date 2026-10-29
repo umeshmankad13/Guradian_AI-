@@ -13,7 +13,7 @@ public record ScanResponse(
     List<String> findings,
     String explanation,
     List<String> recommendations,
-    Instant analyzedAt
+    Instant analyzedAt,
+    boolean cached
 ) {
-    
 }
