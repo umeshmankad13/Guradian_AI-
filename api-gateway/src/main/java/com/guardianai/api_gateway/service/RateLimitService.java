@@ -41,7 +41,8 @@ public class RateLimitService {
 
             boolean allowed = count <= limit;
             long remaining = Math.max(limit - count, 0);
-            return new RateLimitResult(allowed, limit, remaining, ttl);
+            boolean firstBlock = count == limit + 1L;
+            return new RateLimitResult(allowed, limit, remaining, ttl, firstBlock);
 
         } catch (DataAccessException e) {
             // never log the key: it contains an IP address or a user ID
@@ -51,6 +52,6 @@ public class RateLimitService {
     }
 
     private RateLimitResult failOpen(int limit) {
-        return new RateLimitResult(true, limit, limit, 0);
+        return new RateLimitResult(true, limit, limit, 0,false);
     }
 }

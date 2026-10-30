@@ -11,6 +11,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import com.guardianai.api_gateway.service.AuditService;
 import com.guardianai.api_gateway.service.JwtService;
 import com.guardianai.api_gateway.service.RateLimitService;
 
@@ -21,11 +22,13 @@ public class SecurityConfig {
     private final JwtService jwtService;
     private final RateLimitProperties rateLimitProperties;
     private final RateLimitService rateLimitService;
+    private final AuditService auditService;
 
-    public SecurityConfig(JwtService jwtService, RateLimitService rateLimitService, RateLimitProperties rateLimitProperties) {
+    public SecurityConfig(JwtService jwtService, RateLimitService rateLimitService, RateLimitProperties rateLimitProperties,AuditService auditService) {
         this.jwtService = jwtService;
         this.rateLimitService=rateLimitService;
         this.rateLimitProperties=rateLimitProperties;
+        this.auditService= auditService;
     }
 
     @Bean
@@ -50,7 +53,7 @@ public class SecurityConfig {
             )
             .addFilterBefore(new JwtAuthenticationFilter(jwtService),
                     UsernamePasswordAuthenticationFilter.class)
-            .addFilterAfter(new RateLimitFilter(rateLimitService, rateLimitProperties), JwtAuthenticationFilter.class);
+            .addFilterAfter(new RateLimitFilter(rateLimitService, rateLimitProperties,auditService), JwtAuthenticationFilter.class);
         return http.build();
     }
 }

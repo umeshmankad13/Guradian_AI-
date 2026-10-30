@@ -1,5 +1,7 @@
 package com.guardianai.api_gateway.config;
 
+import com.guardianai.api_gateway.service.AuditAction;
+import com.guardianai.api_gateway.service.AuditService;
 import com.guardianai.api_gateway.service.RateLimitResult;
 import com.guardianai.api_gateway.service.RateLimitService;
 import jakarta.servlet.FilterChain;
@@ -20,10 +22,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final RateLimitService rateLimitService;
     private final RateLimitProperties props;
+    private final AuditService auditService;
 
-    public RateLimitFilter(RateLimitService rateLimitService, RateLimitProperties props) {
+    public RateLimitFilter(RateLimitService rateLimitService,
+                           RateLimitProperties props,
+                           AuditService auditService) {
         this.rateLimitService = rateLimitService;
         this.props = props;
+        this.auditService = auditService;
     }
 
     @Override
@@ -48,6 +54,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setHeader("X-RateLimit-Remaining", String.valueOf(result.remaining()));
 
         if (!result.allowed()) {
+            if (result.firstBlock()) {
+                // once per window only, so blocked traffic cannot flood the audit table
+                auditService.record(AuditAction.RATE_LIMITED, currentUserId(), rule.name(), request.getRemoteAddr());
+            }
             long retryAfter = Math.max(result.retryAfterSeconds(), 1);
             response.setStatus(429);
             response.setHeader("Retry-After", String.valueOf(retryAfter));
@@ -65,21 +75,26 @@ public class RateLimitFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
 
         if ("POST".equals(method) && "/v1/auth/login".equals(path)) {
-            return new Rule("login:ip:" + request.getRemoteAddr(), props.loginPerMinute());
+            return new Rule("login", "login:ip:" + request.getRemoteAddr(), props.loginPerMinute());
         }
         if ("POST".equals(method) && "/v1/auth/register".equals(path)) {
-            return new Rule("register:ip:" + request.getRemoteAddr(), props.registerPerMinute());
+            return new Rule("register", "register:ip:" + request.getRemoteAddr(), props.registerPerMinute());
         }
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof UUID userId) {
+        UUID userId = currentUserId();
+        if (userId != null) {
             if ("POST".equals(method) && "/v1/scans".equals(path)) {
-                return new Rule("scan:user:" + userId, props.scanPerMinute());
+                return new Rule("scan", "scan:user:" + userId, props.scanPerMinute());
             }
-            return new Rule("api:user:" + userId, props.defaultPerMinute());
+            return new Rule("api", "api:user:" + userId, props.defaultPerMinute());
         }
         return null;
     }
 
-    private record Rule(String key, int limit) {}
+    private UUID currentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getPrincipal() instanceof UUID id ? id : null;
+    }
+
+    private record Rule(String name, String key, int limit) {}
 }

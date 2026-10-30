@@ -81,4 +81,21 @@ class RateLimitServiceTest {
 
         assertTrue(r.allowed());
     }
+
+        @Test
+    void onlyTheFirstBlockedRequestIsFlagged() {
+        when(ops.increment("rl:k")).thenReturn(6L, 7L);
+        when(redis.getExpire("rl:k")).thenReturn(30L);
+
+        assertTrue(service.check("k", 5, WINDOW).firstBlock());
+        assertFalse(service.check("k", 5, WINDOW).firstBlock());
+    }
+
+    @Test
+    void allowedRequestsAreNeverFlagged() {
+        when(ops.increment("rl:k")).thenReturn(5L);
+        when(redis.getExpire("rl:k")).thenReturn(30L);
+
+        assertFalse(service.check("k", 5, WINDOW).firstBlock());
+    }
 }

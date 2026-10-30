@@ -22,11 +22,13 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final UserSettingsRepository settingsRepository;
+    private final AuditService auditService;
 
     public UserService(UserRepository userRepository,
-                       UserSettingsRepository settingsRepository) {
+                       UserSettingsRepository settingsRepository, AuditService auditService) {
         this.userRepository = userRepository;
         this.settingsRepository = settingsRepository;
+        this.auditService = auditService;
     }
 
     @Transactional(readOnly = true)

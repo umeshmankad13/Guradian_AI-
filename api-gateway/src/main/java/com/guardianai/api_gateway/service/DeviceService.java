@@ -25,9 +25,12 @@ public class DeviceService {
 
     private final UserRepository userRepository;
 
-    public DeviceService (DeviceRepository deviceRepository, UserRepository userRepository) {
+    private final AuditService auditService;
+
+    public DeviceService (DeviceRepository deviceRepository, UserRepository userRepository, AuditService auditService) {
         this.deviceRepository= deviceRepository;
         this.userRepository = userRepository;
+        this.auditService=auditService;
     }
 
     @Transactional 
@@ -40,7 +43,11 @@ public class DeviceService {
         device.setUser(userRepository.getReferenceById(userId));
         device.setBrowser(request.browser().trim());
         device.setExtVersion(request.extVersion().trim());
-        return toResponse(deviceRepository.save(device));
+
+        Device saved = deviceRepository.save(device);
+        auditService.recordAfterCommit(AuditAction.DEVICE_REGISTERED, userId, saved.getId().toString());
+        
+        return toResponse(saved);
     }
 
     @Transactional 
@@ -53,6 +60,8 @@ public class DeviceService {
         //another user's device looks exactly like a missing one
         Device device = deviceRepository.findByIdAndUserId(deviceId, userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Device not found"));
         device.setRevoked(true); //soft delete: scan history keeps its device link
+
+        auditService.recordAfterCommit(AuditAction.DEVICE_REVOKED, userId, deviceId.toString());
     }
 
         private DeviceResponse toResponse(Device d) {

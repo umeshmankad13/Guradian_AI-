@@ -48,4 +48,5 @@ guardian:
     low-ttl-minutes: 60
     medium-ttl-minutes: 30
     high-ttl-minutes: 360
-
+  audit:
+    ip-hash-key: ${AUDIT_IP_KEY}

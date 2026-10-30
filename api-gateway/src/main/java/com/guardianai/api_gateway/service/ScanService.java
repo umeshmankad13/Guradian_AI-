@@ -50,6 +50,7 @@ public class ScanService {
     private final DeviceRepository deviceRepository;
     private final AnalysisService analysisService;
     private final TransactionTemplate tx;
+    private final AuditService auditService;
 
     public ScanService(DomainRepository domainRepository,
                        UrlRepository urlRepository,
@@ -60,7 +61,9 @@ public class ScanService {
                        UserRepository userRepository,
                        DeviceRepository deviceRepository,
                        AnalysisService analysisService,
-                       TransactionTemplate tx) {
+                       AuditService auditService,
+                       TransactionTemplate tx
+                    ) {
         this.domainRepository = domainRepository;
         this.urlRepository = urlRepository;
         this.scanRepository = scanRepository;
@@ -71,6 +74,7 @@ public class ScanService {
         this.deviceRepository = deviceRepository;
         this.analysisService = analysisService;
         this.tx = tx;
+        this.auditService=auditService;
     }
 
     public ScanResponse analyze(UUID userId, UUID deviceId, ScanRequest request) {
@@ -86,7 +90,10 @@ public class ScanService {
         // the slow part (cache lookup or analysis) runs outside any database transaction
         AnalysisService.Result analysis = analysisService.analyze(request);
 
-        return tx.execute(status -> save(userId, deviceId, request, analysis.outcome(), analysis.cached()));
+        ScanResponse response = tx.execute(status -> save(userId, deviceId, request, analysis.outcome(), analysis.cached()));
+
+        auditService.recordAfterCommit(AuditAction.SCAN_CREATED, userId, response.scanId().toString());
+        return response;
     }
 
     private ScanResponse save(UUID userId, UUID deviceId, ScanRequest request,
@@ -160,7 +167,9 @@ public class ScanService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found"));
 
         // other users' scans look exactly like missing ones
-        if (scan.getUser() == null || !scan.getUser().getId().equals(userId)) {
+            if (scan.getUser() == null || !scan.getUser().getId().equals(userId)) {
+            // someone asked for a scan that is not theirs: a possible ID-guessing attempt
+            auditService.record(AuditAction.SCAN_ACCESS_DENIED, userId, id.toString());
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Scan not found");
         }
 
